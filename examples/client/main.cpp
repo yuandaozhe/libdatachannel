@@ -170,7 +170,7 @@ int main(int argc, char **argv) {
 	}
 
 	while (true) {
-		const auto duration = 10s;
+		const auto duration = 5s;
 		const size_t receivedBase = receivedSize.load();
 		const auto timeBase = steady_clock::now();
 
