@@ -73,6 +73,6 @@ if __name__ == '__main__':
         ssl_context = None
 
     print('Listening on port {}'.format(port))
-    start_server = websockets.serve(handle_websocket, '127.0.0.1', port, ssl=ssl_context)
+    start_server = websockets.serve(handle_websocket, '0.0.0.0', port, ssl=ssl_context)
     asyncio.get_event_loop().run_until_complete(start_server)
     asyncio.get_event_loop().run_forever()
