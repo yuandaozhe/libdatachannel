@@ -66,7 +66,7 @@ int main(int argc, char **argv) {
 
 	fill(messageData.begin(), messageData.end(), byte(0xFF));
 
-	rtc::InitLogger(LogLevel::Debug);
+	rtc::InitLogger(LogLevel::Warning);
 
 	Configuration config;
 	config.iceServers.emplace_back("stun:stun.l.google.com:19302"); // change to your STUN server
