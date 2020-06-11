@@ -58,6 +58,12 @@ binary messageData(messageSize);
 atomic<size_t> receivedSize = 0;
 
 int main(int argc, char **argv) {
+	if (argc < 2 || argc > 3) {
+		cout << "Usage: " << (argc == 1 ? argv[0] : "client")
+		     << " signaling_host [remote_id if offerer]" << endl;
+		return -1;
+	}
+
 	fill(messageData.begin(), messageData.end(), byte(0xFF));
 
 	rtc::InitLogger(LogLevel::Debug);
@@ -112,7 +118,7 @@ int main(int argc, char **argv) {
 		}
 	});
 
-	const string url = "ws://localhost:8000/" + localId;
+	const string url = "ws://" + string(argv[1]) + "/" + localId;
 	ws->open(url);
 
 	cout << "Waiting for signaling to be connected..." << endl;
@@ -122,8 +128,8 @@ int main(int argc, char **argv) {
 		this_thread::sleep_for(100ms);
 	}
 
-	if (argc >= 2) {
-		const string id = argv[1];
+	if (argc == 3) {
+		const string id = argv[2];
 
 		cout << "Offering to " + id << endl;
 		auto pc = createPeerConnection(config, ws, id);
@@ -157,7 +163,7 @@ int main(int argc, char **argv) {
 		dc->onClosed([id]() { cout << "DataChannel from " << id << " closed" << endl; });
 
 		dc->onMessage([id](const variant<binary, string> &message) {
-			// TODO
+			// ignore
 		});
 
 		dataChannelMap.emplace(id, dc);
