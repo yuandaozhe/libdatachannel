@@ -33,7 +33,11 @@
 
 using namespace rtc;
 using namespace std;
-using namespace std::chrono_literals;
+using namespace chrono_literals;
+
+using chrono::duration_cast;
+using chrono::milliseconds;
+using chrono::steady_clock;
 
 using json = nlohmann::json;
 
@@ -48,8 +52,15 @@ shared_ptr<PeerConnection> createPeerConnection(const Configuration &config,
                                                 weak_ptr<WebSocket> wws, string id);
 string randomId(size_t length);
 
+const size_t messageSize = 65535;
+binary messageData(messageSize);
+
+atomic<size_t> receivedSize = 0;
+
 int main(int argc, char **argv) {
-	rtc::InitLogger(LogLevel::Warning);
+	fill(messageData.begin(), messageData.end(), byte(0xFF));
+
+	rtc::InitLogger(LogLevel::Debug);
 
 	Configuration config;
 	config.iceServers.emplace_back("stun:stun.l.google.com:19302"); // change to your STUN server
@@ -111,42 +122,60 @@ int main(int argc, char **argv) {
 		this_thread::sleep_for(100ms);
 	}
 
-	while (true) {
-		string id;
-		cout << "Enter a remote ID to send an offer:" << endl;
-		cin >> id;
-		cin.ignore();
-		if (id.empty())
-			break;
-		if (id == localId)
-			continue;
+	if (argc >= 2) {
+		const string id = argv[1];
 
 		cout << "Offering to " + id << endl;
 		auto pc = createPeerConnection(config, ws, id);
 
 		// We are the offerer, so create a data channel to initiate the process
-		const string label = "test";
+		const string label = "benchmark";
 		cout << "Creating DataChannel with label \"" << label << "\"" << endl;
 		auto dc = pc->createDataChannel(label);
 
 		dc->onOpen([id, wdc = make_weak_ptr(dc)]() {
-			cout << "DataChannel from " << id << " open" << endl;
-			if (auto dc = wdc.lock())
-				dc->send("Hello from " + localId);
+			auto dc = wdc.lock();
+			if (!dc)
+				return;
+
+			cout << "DataChannel from " << id << " open, sending data..." << endl;
+			while (dc->bufferedAmount() == 0) {
+				dc->send(messageData);
+			}
+		});
+
+		dc->onBufferedAmountLow([wdc = make_weak_ptr(dc)]() {
+			auto dc = wdc.lock();
+			if (!dc)
+				return;
+
+			while (dc->bufferedAmount() == 0) {
+				dc->send(messageData);
+			}
 		});
 
 		dc->onClosed([id]() { cout << "DataChannel from " << id << " closed" << endl; });
 
 		dc->onMessage([id](const variant<binary, string> &message) {
-			if (!holds_alternative<string>(message))
-				return;
-
-			cout << "Message from " << id << " received: " << get<string>(message) << endl;
+			// TODO
 		});
 
 		dataChannelMap.emplace(id, dc);
+	}
 
-		this_thread::sleep_for(1s);
+	while (true) {
+		const auto duration = 10s;
+		const size_t receivedBase = receivedSize.load();
+		const auto timeBase = steady_clock::now();
+
+		this_thread::sleep_for(duration);
+
+		const size_t delta = receivedSize.load() - receivedBase;
+		const auto elapsed = duration_cast<milliseconds>(steady_clock::now() - timeBase);
+
+		size_t goodput = elapsed.count() > 0 ? delta / elapsed.count() : 0;
+		cout << "Goodput: " << goodput * 0.001 << " MB/s"
+		     << " (" << goodput * 0.001 * 8 << " Mbit/s)" << endl;
 	}
 
 	cout << "Cleaning up..." << endl;
@@ -188,16 +217,14 @@ shared_ptr<PeerConnection> createPeerConnection(const Configuration &config,
 		cout << "DataChannel from " << id << " received with label \"" << dc->label() << "\""
 		     << endl;
 
-		dc->onClosed([id]() { cout << "DataChannel from " << id << " closed" << endl; });
-
 		dc->onMessage([id](const variant<binary, string> &message) {
-			if (!holds_alternative<string>(message))
-				return;
-
-			cout << "Message from " << id << " received: " << get<string>(message) << endl;
+			if (holds_alternative<binary>(message)) {
+				const auto &bin = get<binary>(message);
+				receivedSize += bin.size();
+			}
 		});
 
-		dc->send("Hello from " + localId);
+		dc->onClosed([id]() { cout << "DataChannel from " << id << " closed" << endl; });
 
 		dataChannelMap.emplace(id, dc);
 	});
